@@ -1,8 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
+import { createRequire } from 'module';
 import userProfileRouter from './routes/userProfile.js';
+
+const require = createRequire(import.meta.url);
+const helmet = require('helmet');
 
 const app = express();
 
