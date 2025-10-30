@@ -1,23 +1,46 @@
 import { NextFunction, Router, Request, Response } from 'express';
+import type { User } from '@supabase/supabase-js';
 import { UserProfileInsert, UserProfileUpdate } from '../types/userProfile.js';
 import { supabase } from '../supabaseClient.js';
 
 const router = Router();
 
-// Optional simple API key gate
-function apiKeyGuard(req: Request, res: Response, next: NextFunction) {
-  const expected = process.env.INTERNAL_API_KEY;
-  if (!expected) return next();
-  const provided = req.header('x-internal-api-key');
-  if (provided !== expected) return res.status(401).json({ error: 'Unauthorized' });
-  return next();
+async function supabaseAuthGuard(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.header('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Missing Bearer token' });
+  }
+
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'Unauthorized', details: error?.message });
+    }
+
+    const locals = res.locals as { supabaseUser?: User };
+    locals.supabaseUser = data.user;
+    return next();
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to validate Supabase token', details: (err as Error).message });
+  }
 }
 
-router.post('/api/user-profile', apiKeyGuard, async (req: Request, res: Response) => {
+router.post('/api/user-profile', supabaseAuthGuard, async (req: Request, res: Response) => {
   const body = req.body as Partial<UserProfileInsert>;
+  const { supabaseUser } = res.locals as { supabaseUser?: User };
 
   if (!body || typeof body.user_id !== 'string' || typeof body.role !== 'string') {
     return res.status(400).json({ error: 'user_id and role are required as strings' });
+  }
+
+  if (!supabaseUser || supabaseUser.id !== body.user_id) {
+    return res.status(403).json({ error: 'user_id does not match authenticated user' });
   }
 
   const payload: UserProfileInsert = {
@@ -36,12 +59,17 @@ router.post('/api/user-profile', apiKeyGuard, async (req: Request, res: Response
   return res.status(200).json({ data });
 });
 
-router.put('/api/user-profile/:user_id', apiKeyGuard, async (req: Request, res: Response) => {
+router.put('/api/user-profile/:user_id', supabaseAuthGuard, async (req: Request, res: Response) => {
+  const { supabaseUser } = res.locals as { supabaseUser?: User };
   const { user_id } = req.params as { user_id: string };
   const body = req.body as Partial<UserProfileUpdate>;
 
   if (!user_id || typeof user_id !== 'string') {
     return res.status(400).json({ error: 'user_id param is required' });
+  }
+
+  if (!supabaseUser || supabaseUser.id !== user_id) {
+    return res.status(403).json({ error: 'user_id does not match authenticated user' });
   }
 
   const update: UserProfileUpdate = {};
