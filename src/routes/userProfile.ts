@@ -1,6 +1,7 @@
 import { NextFunction, Router, Request, Response } from "express";
 import type { User } from "@supabase/supabase-js";
 import { UserProfileInsert, UserProfileUpdate } from "../types/userProfile.js";
+import type { SearchPreferences } from "../types/searchPreferences.js";
 import { supabase } from "../supabaseClient.js";
 
 const router = Router();
@@ -158,7 +159,29 @@ router.get(
         .json({ error: error.message, details: error.details });
     }
 
-    return res.status(200).json({ data: data ?? null });
+    const { data: searchPreferencesData, error: searchPreferencesError } =
+      await supabase
+        .from("search_preferences")
+        .select("*")
+        .eq("user_id", supabaseUser.id)
+        .maybeSingle();
+
+    if (searchPreferencesError) {
+      return res.status(400).json({
+        error: searchPreferencesError.message,
+        details: searchPreferencesError.details,
+      });
+    }
+
+    const searchPreferences =
+      (searchPreferencesData as SearchPreferences | null) ?? null;
+
+    return res.status(200).json({
+      data: {
+        user_profile: data ?? null,
+        search_preferences: searchPreferences ?? null,
+      },
+    });
   },
 );
 
